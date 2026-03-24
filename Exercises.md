@@ -61,6 +61,12 @@ This lab guide will walk you through a series of exercises designed to help you 
   - [Exercise 21: Memory Prefetching Optimization](#exercise-21-memory-prefetching-optimization)
     - [Tasks:](#tasks-20)
     - [Questions:](#questions-15)
+  - [Exercise 22: Memory Coalescing](#exercise-22-memory-coalescing)
+    - [Tasks:](#tasks-21)
+    - [Questions:](#questions-16)
+  - [Exercise 23: Tiled Matrix Multiplication with Shared Memory](#exercise-23-tiled-matrix-multiplication-with-shared-memory)
+    - [Tasks:](#tasks-22)
+    - [Questions:](#questions-17)
 
 ## Exercise 1: Hello World from the GPU
 
@@ -1254,3 +1260,189 @@ This exercise will show you how to use asynchronous memory prefetching to optimi
 - Which operation benefits most from prefetching?
 - How does partial prefetching affect performance compared to full prefetching?
 - How would you decide whether to use prefetching in a real application?
+
+## Exercise 22: Memory Coalescing
+
+**File to use:** [memory-coalescing.cu](examples/16-memory-coalescing/memory-coalescing.cu)
+
+Memory coalescing is a technique that maximizes global memory bandwidth utilization. When all threads in a warp execute a load instruction, the hardware detects whether the memory accesses are consecutive. If they are, data is transferred in parallel via DRAM bursts, dramatically improving throughput.
+
+This example compares two matrix multiplication kernels that are algorithmically identical but differ in how thread indices map to matrix rows and columns — one produces coalesced memory accesses, the other does not.
+
+```c
+/*
+ * Coalesced: threadIdx.x maps to column (consecutive threads access
+ * consecutive memory locations in B).
+ */
+__global__ void matMulCoalesced(float *A, float *B, float *C, int n)
+{
+    int row = blockDim.y * blockIdx.y + threadIdx.y;
+    int col = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (row < n && col < n)
+    {
+        float value = 0.0f;
+        for (int k = 0; k < n; k++)
+            value += A[row * n + k] * B[k * n + col];
+        C[row * n + col] = value;
+    }
+}
+
+/*
+ * Uncoalesced: threadIdx.x maps to row (consecutive threads access
+ * memory locations N elements apart in A — strided access).
+ */
+__global__ void matMulUncoalesced(float *A, float *B, float *C, int n)
+{
+    int col = blockDim.y * blockIdx.y + threadIdx.y;
+    int row = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (row < n && col < n)
+    {
+        float value = 0.0f;
+        for (int k = 0; k < n; k++)
+            value += A[row * n + k] * B[k * n + col];
+        C[row * n + col] = value;
+    }
+}
+```
+
+### Tasks:
+
+1. **Compile and run the program, observe the speedup:**
+   ```bash
+   nvcc -o memory-coalescing memory-coalescing.cu
+   ./memory-coalescing
+   ```
+   - Note the kernel times and the speedup factor
+
+2. **Profile both kernels with Nsight Systems:**
+   ```bash
+   nsys profile --stats=true -o coalescing-report ./memory-coalescing
+   ```
+   - Compare global memory load/store throughput for each kernel
+   - Look at the memory operations section to see the difference in bandwidth utilization
+
+3. **Experiment with different matrix sizes:**
+   - Change `N` to 512, 2048, and 4096
+   - Record the speedup factor for each size
+   - Does the coalescing advantage grow or shrink with larger matrices?
+
+4. **Try different block sizes:**
+   - Change `threadsPerBlock` from `(16, 16)` to `(32, 32)`, `(8, 8)`, and `(32, 8)`
+   - How does the block shape affect coalescing performance?
+   - Why does a `(32, 1)` block behave differently from a `(1, 32)` block?
+
+5. **Analyze the memory access pattern on paper:**
+   - For a warp of 32 threads with `threadIdx.x` = 0..31, trace which memory addresses are accessed in the inner loop iteration `k = 0`
+   - For the coalesced kernel: what are the addresses for `B[k*N + col]`?
+   - For the uncoalesced kernel: what are the addresses for `A[row*N + k]`?
+   - Verify that the first pattern is consecutive and the second is strided by N
+
+### Questions:
+- Why does swapping row/col assignment between `threadIdx.x` and `threadIdx.y` cause such a large performance difference?
+- What is the computational intensity (FLOP/Byte) of this kernel? How does it compare to the GPU's compute-to-bandwidth ratio?
+- DRAM operates using bursts of consecutive locations. How does coalesced access exploit this hardware behavior?
+- In what other types of kernels (beyond matrix multiplication) should you pay attention to coalescing?
+
+## Exercise 23: Tiled Matrix Multiplication with Shared Memory
+
+**File to use:** [tiled-matrix-multiply.cu](examples/17-tiled-matrix-multiply/tiled-matrix-multiply.cu)
+
+Global memory is large but slow; shared memory is fast but small. Tiled matrix multiplication partitions matrices into tiles that fit into shared memory, reducing global memory traffic by a factor equal to the tile width.
+
+This example compares a basic matrix multiplication kernel against a tiled version that uses shared memory. The tiled kernel handles non-divisible matrix sizes via boundary checks.
+
+```c
+__global__ void matMulTiled(float *A, float *B, float *C, int n)
+{
+    int row = TILE_WIDTH * blockIdx.y + threadIdx.y;
+    int col = TILE_WIDTH * blockIdx.x + threadIdx.x;
+
+    __shared__ float sh_A[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float sh_B[TILE_WIDTH][TILE_WIDTH];
+
+    float value = 0.0f;
+    int numPhases = (n + TILE_WIDTH - 1) / TILE_WIDTH;
+
+    for (int phase = 0; phase < numPhases; phase++)
+    {
+        // Load tiles into shared memory with boundary checks
+        if (row < n && (phase * TILE_WIDTH + threadIdx.x) < n)
+            sh_A[threadIdx.y][threadIdx.x] = A[row * n + phase * TILE_WIDTH + threadIdx.x];
+        else
+            sh_A[threadIdx.y][threadIdx.x] = 0.0f;
+
+        if ((phase * TILE_WIDTH + threadIdx.y) < n && col < n)
+            sh_B[threadIdx.y][threadIdx.x] = B[(phase * TILE_WIDTH + threadIdx.y) * n + col];
+        else
+            sh_B[threadIdx.y][threadIdx.x] = 0.0f;
+
+        __syncthreads(); // Wait for all threads to finish loading
+
+        for (int k = 0; k < TILE_WIDTH; k++)
+            value += sh_A[threadIdx.y][k] * sh_B[k][threadIdx.x];
+
+        __syncthreads(); // Wait before loading next tile
+    }
+
+    if (row < n && col < n)
+        C[row * n + col] = value;
+}
+```
+
+### Tasks:
+
+1. **Compile and run the program, observe the speedup:**
+   ```bash
+   nvcc -o tiled-matmul tiled-matrix-multiply.cu
+   ./tiled-matmul
+   ```
+   - Note the kernel times for basic vs tiled and the reported computational intensity
+
+2. **Profile both kernels with Nsight Systems:**
+   ```bash
+   nsys profile --stats=true -o tiled-report ./tiled-matmul
+   ```
+   - Compare global memory load throughput between the two kernels
+   - How much did shared memory reduce global memory traffic?
+
+3. **Experiment with different tile sizes:**
+   - Change `TILE_WIDTH` to 8, 16, and 32 (remember: `TILE_WIDTH * TILE_WIDTH` must be <= 1024 max threads per block)
+   - Record the execution time and shared memory usage for each
+   - Verify the reported computational intensity matches: `(2 * TILE_WIDTH) / 8` FLOP/B
+   - Which tile size gives the best performance on your GPU?
+
+4. **Test with non-divisible matrix sizes:**
+   - Change `N` to 1000, 1023, or 1025 (not divisible by 16 or 32)
+   - Verify that results still match the basic kernel
+   - Why are the boundary checks (`if row < n && ...`) and the `else 0.0f` assignments critical for correctness?
+
+5. **Understand the two `__syncthreads()` calls:**
+   - Try commenting out the first `__syncthreads()` (after loading). What happens? Why?
+   - Try commenting out the second `__syncthreads()` (after computation). What happens? Why?
+   - Explain what race condition each barrier prevents
+
+6. **Calculate shared memory limits:**
+   - Query your GPU's shared memory per block:
+     ```c
+     cudaDeviceProp props;
+     cudaGetDeviceProperties(&props, deviceId);
+     printf("Shared memory per block: %lu bytes\n", props.sharedMemPerBlock);
+     ```
+   - Calculate the maximum tile size that fits: `2 * TILE_WIDTH^2 * sizeof(float) <= sharedMemPerBlock`
+   - What is the maximum `TILE_WIDTH` for your GPU? (also limited by 1024 threads per block)
+
+7. **Implement a rectangular matrix version:**
+   - Modify the tiled kernel to multiply A (N1 x N2) by B (N2 x N3) producing C (N1 x N3):
+     - Replace the single `n` parameter with `n1`, `n2`, `n3`
+     - Adjust the phase loop bound to `ceil(n2 / TILE_WIDTH)`
+     - Update boundary checks to use the correct dimension for each matrix
+   - Test with non-square matrices, e.g. A = 512x1024, B = 1024x768
+
+### Questions:
+- Without tiling, the computational intensity is 0.25 FLOP/B. With TILE_WIDTH=32 it becomes 8 FLOP/B. Show why, step by step.
+- What limits the maximum tile size? (Consider both shared memory capacity and max threads per block.)
+- Why must out-of-bounds shared memory elements be set to 0.0f instead of just skipping the load?
+- The technique of breaking one long loop into multiple phases over smaller data chunks is called "strip mining." Why does this run faster even though the total work is the same?
+- How does the tiled kernel's speedup compare to the coalescing speedup from Exercise 22? Which optimization has a bigger impact?
