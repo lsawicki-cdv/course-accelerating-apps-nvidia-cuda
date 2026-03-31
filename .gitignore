@@ -5,3 +5,5 @@
 *_solution.cu
 
 templates/cuda-webcam-filter/build
+
+*.local.*
