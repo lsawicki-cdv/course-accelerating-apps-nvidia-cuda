@@ -124,10 +124,10 @@ Watch how GPU FPS changes between runs as the kernel size grows from 9 to 225 we
 
 ```bash
 # Small kernel — fast compute, GPU overhead dominated by transfers
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3  --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3  --preview
 
 # Large kernel — compute starts to dominate, GPU FPS drops noticeably
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 15 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 15 --preview
 ```
 
 The gradient pattern makes blur and sharpen effects easy to spot: smooth transitions flatten further with blur and sharpen into ringing artefacts with sharpen.
@@ -135,16 +135,16 @@ The gradient pattern makes blur and sharpen effects easy to spot: smooth transit
 ### All filters with large kernel
 
 ```bash
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur    --kernel-size 15 --preview
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter sharpen --kernel-size 5  --preview
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter edge    --kernel-size 3  --preview
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter emboss  --kernel-size 3  --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur    --kernel-size 15 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter sharpen --kernel-size 5  --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter edge    --kernel-size 3  --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter emboss  --kernel-size 3  --preview
 ```
 
 ### Run on your own image
 
 ```bash
-./bin/cuda-webcam-filter --input image --path /path/to/photo.jpg --filter blur --kernel-size 15 --preview
+./cuda-webcam-filter --input image --path /path/to/photo.jpg --filter blur --kernel-size 15 --preview
 ```
 
 A photograph shows the blur most clearly — fine detail (hair, grass, text) disappears with `--kernel-size 15` in a way that a synthetic pattern cannot demonstrate.

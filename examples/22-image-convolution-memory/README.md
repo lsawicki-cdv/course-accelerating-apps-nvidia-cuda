@@ -105,7 +105,7 @@ The GPU time shown includes H2D + kernel + D2H, not just the kernel:
 
 ```bash
 # 3x3 blur — kernel is ~0.2 ms, but total frame time is much higher
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3 --preview
 ```
 
 ### Compare small vs large kernel on the same image
@@ -113,14 +113,14 @@ The GPU time shown includes H2D + kernel + D2H, not just the kernel:
 A 15×15 kernel does 25× more work per pixel — note how GPU FPS drops relative to 3×3:
 
 ```bash
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3  --preview
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 15 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3  --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 15 --preview
 ```
 
 ### Run on your own image
 
 ```bash
-./bin/cuda-webcam-filter --input image --path /path/to/photo.jpg --filter blur --kernel-size 5 --preview
+./cuda-webcam-filter --input image --path /path/to/photo.jpg --filter blur --kernel-size 5 --preview
 ```
 
 The FPS difference between CPU and GPU panels shows the compute speedup. The absolute GPU FPS ceiling is set by the PCIe transfer speed — the memory bottleneck this example teaches.

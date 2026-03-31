@@ -89,16 +89,16 @@ Add `--preview` to show the original image alongside the filtered result.
 
 ```bash
 # Blur — softens edges by averaging the neighborhood
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3 --preview
 
 # Sharpen — amplifies local contrast
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter sharpen --kernel-size 3 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter sharpen --kernel-size 3 --preview
 
 # Edge detection — shows only boundaries, black interior
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter edge --kernel-size 3 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter edge --kernel-size 3 --preview
 
 # Emboss — pseudo-3D relief along diagonal edges
-./bin/cuda-webcam-filter --input synthetic --synthetic gradient --filter emboss --kernel-size 3 --preview
+./cuda-webcam-filter --input synthetic --synthetic gradient --filter emboss --kernel-size 3 --preview
 ```
 
 Other synthetic patterns (`gradient`, `noise`) can be substituted for `checkerboard`.
@@ -106,7 +106,7 @@ Other synthetic patterns (`gradient`, `noise`) can be substituted for `checkerbo
 ### Run on your own image
 
 ```bash
-./bin/cuda-webcam-filter --input image --path /path/to/photo.jpg --filter edge --kernel-size 3 --preview
+./cuda-webcam-filter --input image --path /path/to/photo.jpg --filter edge --kernel-size 3 --preview
 ```
 
 The window title shows per-frame timings and FPS for both CPU and GPU paths.
