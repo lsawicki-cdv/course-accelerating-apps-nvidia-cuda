@@ -15,15 +15,65 @@ This program applies various convolution filters to a webcam feed in real-time u
 ```
 
 ### List of options
-```                            
-  -d, --device arg             Camera device ID (default: 0)
-  -f, --filter arg             Filter type: blur, sharpen, edge, emboss (default: blur)
-  -k, --kernel-size arg        Kernel size for filters (default: 3)
-  -s, --sigma arg              Sigma value for Gaussian blur (default: 1.0)
-  -i, --intensity arg          Filter intensity (default: 1.0)
-  -p, --preview                Show original video alongside filtered
-  -h, --help                   Print usage
-  -v, --version                Print version information
+```
+  -i, --input arg        Input source: 'webcam', 'image', 'video', or 'synthetic' (default: webcam)
+  -p, --path arg         Path to input image or video file (default: test_image.jpg)
+  -s, --synthetic arg    Synthetic pattern type: 'checkerboard', 'gradient', 'noise' (default: checkerboard)
+  -d, --device arg       Camera device ID (default: 0)
+  -f, --filter arg       Filter type: blur, sharpen, edge, emboss (default: blur)
+  -k, --kernel-size arg  Kernel size for filters (default: 3)
+      --sigma arg        Sigma value for Gaussian blur (default: 1.0)
+      --intensity arg    Filter intensity (default: 1.0)
+      --preview          Show original video alongside filtered
+  -h, --help             Print usage
+  -v, --version          Print version information
+```
+
+## Running
+
+Press **ESC** to exit the application.
+
+### Linux
+
+```bash
+# Webcam with blur filter
+./build/cuda-webcam-filter
+
+# Edge detection on webcam with side-by-side preview
+./build/cuda-webcam-filter --filter edge --preview
+
+# Synthetic input (no webcam required)
+./build/cuda-webcam-filter --input synthetic --synthetic checkerboard --filter sharpen --preview
+
+# Process an image file
+./build/cuda-webcam-filter --input image --path photo.jpg --filter emboss
+```
+
+### Windows
+
+The OpenCV DLL directory must be on `PATH` before launching. Adjust the path below if you installed OpenCV elsewhere.
+
+**PowerShell:**
+```powershell
+$env:PATH = "C:\opencv\build\x64\vc16\bin;" + $env:PATH
+
+# Webcam with blur filter
+.\build\Release\cuda-webcam-filter.exe
+
+# Edge detection on webcam with side-by-side preview
+.\build\Release\cuda-webcam-filter.exe --filter edge --preview
+
+# Synthetic input (no webcam required)
+.\build\Release\cuda-webcam-filter.exe --input synthetic --synthetic checkerboard --filter sharpen --preview
+
+# Process an image file
+.\build\Release\cuda-webcam-filter.exe --input image --path photo.jpg --filter emboss
+```
+
+**Command Prompt:**
+```cmd
+set PATH=C:\opencv\build\x64\vc16\bin;%PATH%
+.\build\Release\cuda-webcam-filter.exe --filter edge --preview
 ```
 
 ## Hardware requirements
