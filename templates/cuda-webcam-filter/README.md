@@ -30,16 +30,132 @@ This program applies various convolution filters to a webcam feed in real-time u
 Requires a CUDA-enabled GPU.
 
 ## Dependencies
-- OpenCV (>= 4.5.0)
+- OpenCV (>= 4.5.0) — **install separately, see below**
 - CUDA Toolkit (>= 12.0)
-- cxxopts
-- plog
-- Google Test
+- cxxopts (bundled in `external/`)
+- plog (bundled in `external/`)
+- Google Test (bundled in `external/`)
 - CMake (>= 3.28)
 
-## Linux
+## OpenCV Installation
 
-### CMake Installation
+OpenCV is **not bundled** in this repository. Install it before building.
+
+### Linux
+
+#### Option A — Package manager (quickest, no CUDA support in OpenCV itself)
+```bash
+sudo apt-get update
+sudo apt-get install libopencv-dev
+```
+The CUDA kernel in this app runs independently of OpenCV's CUDA build, so this is sufficient for most use cases.
+
+#### Option B — Build from source with CUDA support
+Required when you want OpenCV's own GPU-accelerated functions (e.g. `cv::cuda::*`).
+
+**1. Install prerequisites**
+```bash
+sudo apt-get update
+sudo apt-get install build-essential cmake git pkg-config \
+    libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev \
+    libv4l-dev libxvidcore-dev libx264-dev libjpeg-dev libpng-dev \
+    libtiff-dev gfortran openexr libatlas-base-dev python3-dev \
+    python3-numpy libtbb-dev libdc1394-dev
+```
+
+**2. Download OpenCV 4.11.0**
+```bash
+wget -O opencv.tar.gz https://github.com/opencv/opencv/archive/refs/tags/4.11.0.tar.gz
+wget -O opencv_contrib.tar.gz https://github.com/opencv/opencv_contrib/archive/refs/tags/4.11.0.tar.gz
+tar -xzf opencv.tar.gz
+tar -xzf opencv_contrib.tar.gz
+```
+
+**3. Build and install**
+```bash
+cd opencv-4.11.0
+mkdir build && cd build
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DOPENCV_EXTRA_MODULES_PATH=../../opencv_contrib-4.11.0/modules \
+  -DWITH_CUDA=ON \
+  -DWITH_CUBLAS=ON \
+  -DCUDA_ARCH_BIN="8.9" \
+  -DCUDA_FAST_MATH=ON \
+  -DBUILD_opencv_python2=OFF \
+  -DBUILD_opencv_python3=OFF \
+  -DBUILD_EXAMPLES=OFF \
+  -DBUILD_TESTS=OFF \
+  -DBUILD_PERF_TESTS=OFF \
+  -DBUILD_DOCS=OFF
+cmake --build . -j $(nproc)
+sudo make install
+sudo ldconfig
+```
+> Adjust `CUDA_ARCH_BIN` to match your GPU's compute capability (e.g. `"8.6"` for RTX 3070, `"7.5"` for RTX 2080).
+
+**4. Point CMake to the installation (if installed to a non-default prefix)**
+```bash
+cmake .. -DOpenCV_DIR=/path/to/opencv/build
+```
+
+---
+
+### Windows
+
+#### Option A — Pre-built binaries (quickest, no CUDA support in OpenCV itself)
+
+1. Download the Windows installer from the [OpenCV releases page](https://github.com/opencv/opencv/releases/tag/4.11.0) — pick `opencv-4.11.0-windows.exe`.
+2. Run the installer and extract to e.g. `C:\opencv`.
+3. Add `C:\opencv\build\x64\vc16\bin` to your `PATH` environment variable.
+4. Pass the OpenCV CMake dir when configuring:
+```powershell
+cmake .. -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:\opencv\build"
+```
+
+#### Option B — Build from source with CUDA support
+
+**Prerequisites:** Visual Studio 2022, CUDA Toolkit, CMake 3.28+, Git.
+
+**1. Download sources**
+```powershell
+Invoke-WebRequest -Uri https://github.com/opencv/opencv/archive/refs/tags/4.11.0.zip -OutFile opencv.zip
+Invoke-WebRequest -Uri https://github.com/opencv/opencv_contrib/archive/refs/tags/4.11.0.zip -OutFile opencv_contrib.zip
+Expand-Archive opencv.zip -DestinationPath .
+Expand-Archive opencv_contrib.zip -DestinationPath .
+```
+
+**2. Build and install**
+```powershell
+cd opencv-4.11.0
+mkdir build; cd build
+cmake .. `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DOPENCV_EXTRA_MODULES_PATH="..\..\opencv_contrib-4.11.0\modules" `
+  -DWITH_CUDA=ON `
+  -DWITH_CUBLAS=ON `
+  -DCUDA_ARCH_BIN="8.9" `
+  -DCUDA_FAST_MATH=ON `
+  -DBUILD_opencv_python2=OFF `
+  -DBUILD_opencv_python3=OFF `
+  -DBUILD_EXAMPLES=OFF `
+  -DBUILD_TESTS=OFF `
+  -DBUILD_PERF_TESTS=OFF `
+  -DBUILD_DOCS=OFF `
+  -DCMAKE_INSTALL_PREFIX="C:\opencv-cuda"
+cmake --build . --config Release -j
+cmake --install . --config Release
+```
+
+**3. Point CMake to the installation**
+```powershell
+cmake .. -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:\opencv-cuda"
+```
+
+---
+
+### CMake Installation (Linux)
 ```bash
 # For Ubuntu/Debian
 sudo apt-get update
@@ -51,20 +167,18 @@ sudo apt-get update
 sudo apt-get install cmake=3.28.*
 ```
 
-```
+```bash
 sudo apt-get update
 sudo apt-get install gcc-12 g++-12
 sudo apt-get install libgtk-3-dev pkg-config
 ```
 
-### External dependencies
+### Bundled external dependencies
 
-The application has the following external dependencies that can be updated using git subtree
-- plog - `git subtree pull --prefix templates/cuda-webcam-filter/external/plog https://github.com/SergiusTheBest/plog.git tags/1.1.10 --squash`
-- cxxopts - `git subtree pull --prefix templates/cuda-webcam-filter/external/cxxopts https://github.com/jarro2783/cxxopts.git tags/v3.2.0 --squash`
-- gtest - `git subtree pull --prefix templates/cuda-webcam-filter/external/gtest https://github.com/google/googletest.git tags/v1.16.0 --squash`
-- opencv - `git subtree pull --prefix templates/cuda-webcam-filter/external/opencv https://github.com/opencv/opencv.git tags/4.11.0 --squash`
-- opencv contrib - `git subtree pull --prefix templates/cuda-webcam-filter/external/opencv_contrib https://github.com/opencv/opencv_contrib.git tags/4.11.0 --squash`
+The following libraries are bundled in `external/` and require no separate installation. They can be updated with git subtree:
+- plog — `git subtree pull --prefix templates/cuda-webcam-filter/external/plog https://github.com/SergiusTheBest/plog.git tags/1.1.10 --squash`
+- cxxopts — `git subtree pull --prefix templates/cuda-webcam-filter/external/cxxopts https://github.com/jarro2783/cxxopts.git tags/v3.2.0 --squash`
+- gtest — `git subtree pull --prefix templates/cuda-webcam-filter/external/gtest https://github.com/google/googletest.git tags/v1.16.0 --squash`
 
 ## Build
 

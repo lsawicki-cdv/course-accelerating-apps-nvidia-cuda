@@ -63,35 +63,18 @@ option(CUDA_DEBUG "Enable CUDA debug" OFF)
 option(RUN_UNIT_TESTS "Enable running unit tests" OFF)
 option(RUN_FUNCTIONAL_TESTS "Enable running functional tests" OFF)
 
-# Add dependencies before OpenCV
+# Bundled dependencies
 add_subdirectory(external/cxxopts)
 add_subdirectory(external/plog)
 add_subdirectory(external/gtest)
 
 include_directories(${CMAKE_SOURCE_DIR}/external/cxxopts/include)
 
-# Set path to opencv_contrib modules - this is critical for CUDA support
-set(OPENCV_EXTRA_MODULES_PATH "${CMAKE_SOURCE_DIR}/external/opencv_contrib/modules" CACHE PATH "Location of opencv_contrib modules")
-
-# Common OpenCV configuration options
-set(WITH_OPENGL ON CACHE BOOL "")
-set(WITH_VTK OFF CACHE BOOL "")
-set(WITH_QT OFF CACHE BOOL "")
-set(BUILD_opencv_python2 OFF CACHE BOOL "")
-set(BUILD_opencv_python3 OFF CACHE BOOL "")
-set(BUILD_EXAMPLES OFF CACHE BOOL "")
-set(BUILD_TESTS OFF CACHE BOOL "")
-set(BUILD_PERF_TESTS OFF CACHE BOOL "")
-set(BUILD_DOCS OFF CACHE BOOL "")
-set(BUILD_JAVA OFF CACHE BOOL "")
-
 # OS-specific configurations
 if(WIN32)
     # Windows-specific settings
     message(STATUS "Configuring build for Windows")
-    set(WITH_GTK OFF CACHE BOOL "")
-    set(WITH_GTK_2_X OFF CACHE BOOL "")
-    
+
     # Windows-specific CUDA paths
     if(CUDA_SUPPORT)
         # Try to find CUDA in standard locations
@@ -112,9 +95,7 @@ if(WIN32)
 else()
     # Linux-specific settings
     message(STATUS "Configuring build for Linux")
-    set(WITH_GTK ON CACHE BOOL "")
-    set(WITH_GTK_2_X OFF CACHE BOOL "") # Use GTK3 by default on Linux
-       
+
     if(GCC_12_COMPILER AND GXX_12_COMPILER)
         message(STATUS "Using GCC 12: ${GCC_12_COMPILER}")
         message(STATUS "Using G++ 12: ${GXX_12_COMPILER}")
@@ -140,7 +121,7 @@ else()
     endif()
 endif()
 
-# CUDA support for OpenCV
+# CUDA support
 if(CUDA_SUPPORT)
     enable_language(CUDA)
     message(STATUS "CMAKE_CUDA_COMPILER = ${CMAKE_CUDA_COMPILER}")
@@ -165,65 +146,13 @@ if(CUDA_SUPPORT)
 
     # Target architecture
     set(CMAKE_CUDA_ARCHITECTURES "89")  # TODO: RTX 4060 (Ada Lovelace) - Adjust to target specific GPUs!!!
-
-    # Explicitly set the CUDA architectures for OpenCV to avoid auto-detection
-    # Use only architectures that your GPU supports
-    set(CUDA_ARCH_BIN "8.9" CACHE STRING "CUDA architectures" FORCE)  # TODO: RTX 4060 (Ada Lovelace) - Adjust to target specific GPUs!!!
-    set(CUDA_ARCH_PTX "" CACHE STRING "CUDA PTX architectures" FORCE)
-
-    set(WITH_CUDA ON CACHE BOOL "")
-    set(WITH_CUBLAS ON CACHE BOOL "")
-    set(CUDA_FAST_MATH ON CACHE BOOL "")
-    set(OPENCV_DNN_CUDA OFF CACHE BOOL "")
-    
-    # Disable certain CUDA features that might cause problems
-    set(WITH_CUDNN OFF CACHE BOOL "")
-    
-    # Build cudev module that is required for CUDA support
-    set(BUILD_opencv_cudev ON CACHE BOOL "")
-
-    set(WITH_NVCUVENC OFF CACHE BOOL "")
-    set(WITH_NVCUVID OFF CACHE BOOL "")
-else()
-    set(WITH_CUDA OFF CACHE BOOL "")
-    set(WITH_CUBLAS OFF CACHE BOOL "")
-    set(WITH_NVCUVENC OFF CACHE BOOL "")
-    set(WITH_NVCUVID OFF CACHE BOOL "")
 endif()
 
-# Add OpenCV subdirectory
-add_subdirectory(external/opencv)
-
-# Explicitly include OpenCV directories - both source and build directories
-include_directories(
-    ${CMAKE_SOURCE_DIR}/external/opencv/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/core/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/calib3d/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/features2d/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/flann/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/dnn/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/highgui/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/imgcodecs/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/videoio/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/imgproc/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/ml/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/objdetect/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/photo/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/stitching/include
-    ${CMAKE_SOURCE_DIR}/external/opencv/modules/video/include
-    ${CMAKE_BINARY_DIR}/external/opencv
-    ${CMAKE_BINARY_DIR}
-    ${CMAKE_BINARY_DIR}/modules
-)
-
-# Also include contrib modules if CUDA is enabled
-if(CUDA_SUPPORT)
-    include_directories(
-        ${CMAKE_SOURCE_DIR}/external/opencv_contrib/modules/cudev/include
-        ${CMAKE_BINARY_DIR}/opencv_modules
-        ${CMAKE_BINARY_DIR}/external/opencv/modules # For generated headers
-    )
-endif()
+# Find OpenCV (must be installed system-wide or via CMAKE_PREFIX_PATH)
+# See README.md for installation instructions on Linux and Windows
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui videoio)
+message(STATUS "OpenCV ${OpenCV_VERSION} found")
+include_directories(${OpenCV_INCLUDE_DIRS})
 
 # Define source files
 set(SOURCES
@@ -256,11 +185,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${INCLUDE_DIRS})
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_20)
 
 # Link libraries
-target_link_libraries(${PROJECT_NAME} 
-    opencv_core
-    opencv_imgproc
-    opencv_highgui
-    opencv_videoio
+target_link_libraries(${PROJECT_NAME}
+    ${OpenCV_LIBS}
     plog::plog
     GTest::gtest GTest::gmock
 )
