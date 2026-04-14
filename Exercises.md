@@ -67,6 +67,24 @@ This lab guide will walk you through a series of exercises designed to help you 
   - [Exercise 23: Tiled Matrix Multiplication with Shared Memory](#exercise-23-tiled-matrix-multiplication-with-shared-memory)
     - [Tasks:](#tasks-22)
     - [Questions:](#questions-17)
+  - [Exercise 24: Tensor Cores Intro (WMMA API)](#exercise-24-tensor-cores-intro-wmma-api)
+    - [Tasks:](#tasks-23)
+    - [Questions:](#questions-18)
+  - [Exercise 25: Tensor Cores with Shared Memory Staging](#exercise-25-tensor-cores-with-shared-memory-staging)
+    - [Tasks:](#tasks-24)
+    - [Questions:](#questions-19)
+  - [Exercise 26: SGEMM Step-by-Step Optimization Ladder](#exercise-26-sgemm-step-by-step-optimization-ladder)
+    - [Tasks:](#tasks-25)
+    - [Questions:](#questions-20)
+  - [Exercise 27: Image Convolution — Naive GPU Kernel](#exercise-27-image-convolution--naive-gpu-kernel)
+    - [Tasks:](#tasks-26)
+    - [Questions:](#questions-21)
+  - [Exercise 28: Image Convolution — Constant & Pinned Memory](#exercise-28-image-convolution--constant--pinned-memory)
+    - [Tasks:](#tasks-27)
+    - [Questions:](#questions-22)
+  - [Exercise 29: Image Convolution — Shared Memory Halo Pattern](#exercise-29-image-convolution--shared-memory-halo-pattern)
+    - [Tasks:](#tasks-28)
+    - [Questions:](#questions-23)
 
 ## Exercise 1: Hello World from the GPU
 
@@ -708,34 +726,34 @@ These files implement matrix multiplication on CPU and GPU. This exercise will h
    {
        __shared__ int aTile[TILE_SIZE][TILE_SIZE];
        __shared__ int bTile[TILE_SIZE][TILE_SIZE];
-       
-       int row = blockIdx.x * blockDim.x + threadIdx.x;
-       int col = blockIdx.y * blockDim.y + threadIdx.y;
-       
+
+       int row = blockIdx.y * blockDim.y + threadIdx.y;
+       int col = blockIdx.x * blockDim.x + threadIdx.x;
+
        int sum = 0;
-       
+
        // Loop over tiles
        for (int t = 0; t < (N + TILE_SIZE - 1) / TILE_SIZE; t++) {
            // Load tiles into shared memory
-           if (row < N && t * TILE_SIZE + threadIdx.y < N)
-               aTile[threadIdx.x][threadIdx.y] = a[row * N + t * TILE_SIZE + threadIdx.y];
+           if (row < N && t * TILE_SIZE + threadIdx.x < N)
+               aTile[threadIdx.y][threadIdx.x] = a[row * N + t * TILE_SIZE + threadIdx.x];
            else
-               aTile[threadIdx.x][threadIdx.y] = 0;
-               
-           if (t * TILE_SIZE + threadIdx.x < N && col < N)
-               bTile[threadIdx.x][threadIdx.y] = b[(t * TILE_SIZE + threadIdx.x) * N + col];
+               aTile[threadIdx.y][threadIdx.x] = 0;
+
+           if (t * TILE_SIZE + threadIdx.y < N && col < N)
+               bTile[threadIdx.y][threadIdx.x] = b[(t * TILE_SIZE + threadIdx.y) * N + col];
            else
-               bTile[threadIdx.x][threadIdx.y] = 0;
-               
+               bTile[threadIdx.y][threadIdx.x] = 0;
+
            __syncthreads();
-           
+
            // Compute partial sum for this tile
            for (int i = 0; i < TILE_SIZE; i++)
-               sum += aTile[threadIdx.x][i] * bTile[i][threadIdx.y];
-               
+               sum += aTile[threadIdx.y][i] * bTile[i][threadIdx.x];
+
            __syncthreads();
        }
-       
+
        if (row < N && col < N)
            c[row * N + col] = sum;
    }
@@ -1446,3 +1464,313 @@ __global__ void matMulTiled(float *A, float *B, float *C, int n)
 - Why must out-of-bounds shared memory elements be set to 0.0f instead of just skipping the load?
 - The technique of breaking one long loop into multiple phases over smaller data chunks is called "strip mining." Why does this run faster even though the total work is the same?
 - How does the tiled kernel's speedup compare to the coalescing speedup from Exercise 22? Which optimization has a bigger impact?
+
+## Exercise 24: Tensor Cores Intro (WMMA API)
+
+**File to use:** [tensor-cores-intro.cu](examples/18-tensor-cores-intro/tensor-cores-intro.cu)
+
+Tensor cores are dedicated matrix-multiply-accumulate units present on Volta and newer NVIDIA GPUs. A single tensor-core operation computes `D = A * B + C` on 16×16 half-precision (FP16) tiles in one instruction, cooperatively executed by all 32 threads in a warp. This example pairs a standard CUDA-core FP32 matmul with a WMMA kernel so the speedup is directly observable.
+
+```cuda
+#include <mma.h>
+using namespace nvcuda;
+
+__global__ void wmmaKernel(const half *A, const half *B, float *C,
+                           int M, int N, int K)
+{
+    int warpRow = blockIdx.y;                       // one warp per 16x16 tile
+    int warpCol = blockIdx.x;
+
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float>              acc_frag;
+
+    wmma::fill_fragment(acc_frag, 0.0f);
+
+    for (int k = 0; k < K; k += 16) {
+        wmma::load_matrix_sync(a_frag, A + warpRow * 16 * K + k, K);
+        wmma::load_matrix_sync(b_frag, B + k * N + warpCol * 16,  N);
+        wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+    }
+
+    wmma::store_matrix_sync(C + warpRow * 16 * N + warpCol * 16,
+                            acc_frag, N, wmma::mem_row_major);
+}
+```
+
+### Tasks
+
+1. **Compile and run the baseline comparison:**
+   ```bash
+   nvcc -arch=sm_89 -o tensor-intro tensor-cores-intro.cu
+   ./tensor-intro
+   ```
+   - Record GFLOPS for the CUDA-core and tensor-core kernels and the ratio.
+
+2. **Profile both kernels:**
+   ```bash
+   nsys profile --stats=true ./tensor-intro
+   ```
+   - Confirm the tensor-core kernel finishes in a fraction of the CUDA-core time.
+
+3. **Explore the FP16 / FP32 mix:**
+   - `A` and `B` are `half`, the accumulator is `float`. Convert `A`/`B` to `float` and try to call `wmma::load_matrix_sync` — the compile error is part of the lesson: tensor cores require FP16 inputs in this API.
+
+4. **Scale the problem:**
+   - Try `M = N = K = 512`, `1024`, `2048`, `4096`.
+   - Plot GFLOPS vs. matrix size for both kernels. Where does the tensor-core advantage peak?
+
+5. **Verify accuracy:**
+   - Compute a reference result on the CPU (or with the CUDA-core kernel) and measure the max absolute difference.
+   - FP16 inputs cause small rounding error — what tolerance is acceptable? Why does the error grow with `K`?
+
+### Questions
+
+- Why must every member of a warp call `load_matrix_sync` / `mma_sync` / `store_matrix_sync`? What happens if only some threads enter the branch?
+- The tensor core issues one 16×16×16 MMA per cycle per warp. Derive the theoretical FLOPS: 16×16×16×2 (MAC = 2 FLOPs) × clock rate × #TCs per SM × #SMs.
+- Why does the speedup over CUDA cores shrink for very small problem sizes?
+
+## Exercise 25: Tensor Cores with Shared Memory Staging
+
+**File to use:** [tensor-cores-shared-memory.cu](examples/19-tensor-cores-shared-memory/tensor-cores-shared-memory.cu)
+
+Mirrors the progression from Exercise 22 → 23, but for tensor cores: four warps in a block cooperatively stage a 32×32 tile of `A` and `B` through shared memory, replacing four independent global-memory loads per K-phase with one cooperative load.
+
+### Tasks
+
+1. **Compile and run, record both GFLOPS values:**
+   ```bash
+   nvcc -arch=sm_89 -o tc-shared tensor-cores-shared-memory.cu
+   ./tc-shared
+   ```
+   - Compare naive-WMMA vs. shared-WMMA and compute the speedup.
+
+2. **Understand the block topology:**
+   - 128 threads per block = 4 warps arranged 2×2. Each warp owns one 16×16 output tile; the block covers a 32×32 region.
+   - On paper, list which warp (identified by `threadIdx.y / 16`, `threadIdx.x / 16` or similar) writes which sub-tile of C.
+
+3. **Inspect the two `__syncthreads()` calls:**
+   - One after filling shared memory, one before overwriting it in the next K-phase. Comment out each in turn and describe the resulting race condition.
+
+4. **Scale the problem size:**
+   - Run with `M = N = K = 1024`, `2048`, `4096`, `8192`.
+   - The shared-memory advantage is small at 1024 (matrices fit in L2) but grows with size. Plot the speedup vs. size.
+
+5. **Compare with Exercise 26 (SGEMM):**
+   - Kernel 3 of the SGEMM ladder in example 20 applies the same shared-memory tiling to FP32. How do the relative speedups differ? Why might tensor cores benefit less from tiling?
+
+### Questions
+
+- The tile is 32×32 half elements = 2048 bytes for A plus 2048 for B = 4 KB per block. How many blocks can run concurrently on one SM given its shared memory budget?
+- Why is `half` (2 bytes) beneficial twice: once for tensor-core arithmetic, and again for shared-memory capacity?
+- In what scenario would the naive WMMA version *beat* the shared-memory version?
+
+## Exercise 26: SGEMM Step-by-Step Optimization Ladder
+
+**File to use:** [sgemm-optimizations.cu](examples/20-sgemm-optimizations/sgemm-optimizations.cu)
+
+Six progressively optimized SGEMM kernels running on the same 4096×4096 problem. Each kernel adds exactly one technique on top of the previous one, letting you isolate the contribution of each optimization and compare all six against cuBLAS.
+
+| # | Kernel | Key technique |
+|---|--------|---------------|
+| 1 | Naive | one thread per output, uncoalesced |
+| 2 | Coalesced | swap index mapping |
+| 3 | Tiled | 32×32 shared-memory tile |
+| 4 | 1D Coarsening | each thread computes TM=8 rows |
+| 5 | 2D Coarsening | each thread computes TM×TN=8×8 (outer product) |
+| 6 | Vectorized | `float4` loads/stores |
+
+### Tasks
+
+1. **Build with cuBLAS and run the ladder:**
+   ```bash
+   nvcc -arch=sm_89 -lcublas -o sgemm sgemm-optimizations.cu
+   ./sgemm
+   ```
+   - Record GFLOPS and % of cuBLAS for each kernel. Build a bar chart.
+
+2. **Identify the biggest jumps:**
+   - Which single step gives the largest speedup? Explain why in terms of what it removes as the bottleneck (bandwidth vs. arithmetic intensity vs. instruction throughput).
+
+3. **Profile kernel 4 (1D coarsening):**
+   ```bash
+   nsys profile --stats=true ./sgemm
+   ```
+   - How does the number of launched threads change between kernel 3 and kernel 4? How does occupancy change?
+
+4. **Shrink the problem size:**
+   - Re-run at 1024×1024 and 512×512. Do the later optimizations (5, 6) still help? Why might vectorization give a negative return on a small matrix?
+
+5. **Ablation — disable vectorization:**
+   - Replace the `float4` loads in kernel 6 with four scalar loads. Measure the difference. Is vectorization mainly saving instructions, memory transactions, or both?
+
+6. **Compare with cuBLAS:**
+   - cuBLAS reaches 100% by definition. Which of your kernels gets closest? What techniques are cuBLAS likely using that the 6-kernel ladder does not (hint: tensor cores, auto-tuning, warp-specialized producer/consumer pipelines)?
+
+### Questions
+
+- The arithmetic intensity climbs from 0.25 FLOP/byte (naive) to 128+ FLOP/byte (2D coarsening). Derive the exact number for TM=TN=8, tile=32.
+- Why does 1D coarsening let you cache `B[...]` in a register and amortize the shared-memory load across TM MACs?
+- At what point does the bottleneck shift from memory bandwidth to instruction throughput?
+- Vectorized loads raise effective bandwidth but do not change arithmetic intensity. Why do they still help?
+
+## Exercise 27: Image Convolution — Naive GPU Kernel
+
+**File to use:** [image-convolution-naive.cu](examples/21-image-convolution-naive/image-convolution-naive.cu)
+
+First hands-on 2D stencil kernel. One thread per output pixel reads a small filter-sized neighborhood from the input image and writes one pixel of the output. Clamp-to-edge boundary handling mirrors the production `templates/cuda-webcam-filter` implementation.
+
+```cuda
+__global__ void convKernel(const unsigned char *in, unsigned char *out,
+                           const float *filter, int W, int H, int radius)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= W || y >= H) return;
+
+    float sum = 0.0f;
+    for (int ky = -radius; ky <= radius; ky++) {
+        for (int kx = -radius; kx <= radius; kx++) {
+            int sx = min(max(x + kx, 0), W - 1);
+            int sy = min(max(y + ky, 0), H - 1);
+            sum += filter[(ky + radius) * (2*radius+1) + (kx + radius)]
+                   * in[sy * W + sx];
+        }
+    }
+    out[y * W + x] = (unsigned char)fminf(fmaxf(sum, 0.0f), 255.0f);
+}
+```
+
+### Tasks
+
+1. **Run the example and observe the five filters:**
+   ```bash
+   nvcc -o conv-naive image-convolution-naive.cu
+   ./conv-naive
+   ```
+   - Record CPU vs. GPU times and the kernel-only speedup.
+
+2. **Relate to the production app:**
+   - Look at `templates/cuda-webcam-filter/src/kernels/convolution_kernels.cu`. Identify the matching grid/block layout and clamp logic.
+   - Run the webcam filter on a synthetic image:
+     ```bash
+     cd templates/cuda-webcam-filter/build
+     ./cuda-webcam-filter --input synthetic --synthetic gradient --filter edge --kernel-size 3 --preview
+     ```
+
+3. **Change the block shape:**
+   - Try `blockDim` of `(8,8)`, `(16,16)`, `(32,16)`, `(32,32)`. Record kernel time for each. Which shape best matches warp-coalescing of the input rows?
+
+4. **Change the filter size:**
+   - Modify the program to use a 5×5 and 7×7 blur. Cost scales as `(2r+1)^2` per output pixel — verify your measurements match that.
+
+5. **Replace clamp-to-edge with zero padding:**
+   - Change the boundary handling to return 0 for out-of-image samples. Run visually — what does the output look like near edges? Discuss trade-offs.
+
+### Questions
+
+- Why is 2D convolution a near-ideal GPU workload (no dependencies between output pixels)?
+- The naive kernel reports ~1000× speedup versus CPU — but that is kernel time only. What is missing from that measurement? (See Exercise 28.)
+- Why does a `(16, 16)` block shape usually outperform `(1, 256)` for this kernel, even though both have 256 threads?
+
+## Exercise 28: Image Convolution — Constant & Pinned Memory
+
+**File to use:** [image-convolution-memory.cu](examples/22-image-convolution-memory/image-convolution-memory.cu)
+
+Exposes the real bottleneck in GPU image processing: PCIe transfer, not the kernel. Three progressively optimized versions break the per-phase cost (H2D / kernel / D2H), and two targeted fixes are applied — `__constant__` memory for the filter and pinned host memory for the image.
+
+### Tasks
+
+1. **Run the three versions and read the per-phase table:**
+   ```bash
+   nvcc -o conv-memory image-convolution-memory.cu
+   ./conv-memory
+   ```
+   - Confirm: kernel time ≪ transfer time; pinned memory halves H2D and D2H.
+
+2. **Declare `__constant__` memory yourself:**
+   - In a copy of Exercise 27's kernel, add
+     ```cuda
+     __constant__ float d_filter_const[225];
+     ```
+     at file scope. Upload with `cudaMemcpyToSymbol(d_filter_const, filter, size);` and read `d_filter_const[...]` directly inside the kernel (no pointer parameter).
+   - Measure the speedup for a 3×3 and a 15×15 filter.
+
+3. **Switch from pageable to pinned:**
+   - Replace `malloc` / `free` for the host image with `cudaHostAlloc` / `cudaFreeHost`.
+   - Measure H2D and D2H time with each allocation strategy.
+
+4. **Try the webcam filter at different kernel sizes:**
+   ```bash
+   ./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 3  --preview
+   ./cuda-webcam-filter --input synthetic --synthetic gradient --filter blur --kernel-size 15 --preview
+   ```
+   - Observe how GPU FPS drops at `--kernel-size 15`. Sketch which part of the pipeline (H2D / kernel / D2H) dominates at each size.
+
+5. **Over-pinning warning:**
+   - Allocate a very large pinned buffer (e.g., 2 GB) and observe system responsiveness. Why does over-pinning affect the whole OS?
+
+### Questions
+
+- Why is `__constant__` memory a perfect fit for filter weights specifically, but a bad fit for the input image?
+- What is the broadcast pattern, and how does the constant cache exploit it?
+- Pinned memory doubles DMA throughput in this example. Why is it not always the default?
+- For a streaming webcam app at 60 FPS, what is the maximum image size that PCIe 4.0 (~32 GB/s one-way) can feed without becoming the bottleneck?
+
+## Exercise 29: Image Convolution — Shared Memory Halo Pattern
+
+**File to use:** [image-convolution-shared-memory.cu](examples/23-image-convolution-shared-memory/image-convolution-shared-memory.cu)
+
+Teaches the **halo (apron) tiling** pattern for 2D stencils: each block cooperatively loads its output tile plus a border of width `radius` into shared memory, then all threads in the block read from fast on-chip SRAM. The benefit scales with filter size — for small filters the cooperative-load overhead can actually outweigh the savings.
+
+```cuda
+__shared__ unsigned char tile[BLOCK_H + 2*MAX_RADIUS][BLOCK_W + 2*MAX_RADIUS];
+
+int tileW = BLOCK_W + 2 * radius;
+int tileH = BLOCK_H + 2 * radius;
+int tid   = threadIdx.y * BLOCK_W + threadIdx.x;
+
+for (int i = tid; i < tileW * tileH; i += BLOCK_W * BLOCK_H) {
+    int ty = i / tileW, tx = i % tileW;
+    int gx = min(max(blockOriginX + tx - radius, 0), W - 1);
+    int gy = min(max(blockOriginY + ty - radius, 0), H - 1);
+    tile[ty][tx] = d_in[gy * W + gx];
+}
+__syncthreads();  // every thread must finish loading before anyone reads
+```
+
+### Tasks
+
+1. **Compile and run for 3×3 and 15×15 filters:**
+   ```bash
+   nvcc -o conv-shared image-convolution-shared-memory.cu
+   ./conv-shared
+   ```
+   - Record kernel times for naive global / constant memory / shared tile at each radius.
+
+2. **Confirm the counter-intuitive result:**
+   - Shared tile is ~0.9× (slower!) at 3×3 but ~2× faster at 15×15. Explain using the redundant-read ratio (`9×` vs `225×`).
+
+3. **Vary the block size:**
+   - Try `BLOCK_W × BLOCK_H` of `(16, 16)`, `(32, 8)`, `(8, 32)`. The tile size grows as `(B + 2r)²`. At what point do you hit the shared-memory-per-block limit?
+
+4. **Query shared memory limits:**
+   ```cuda
+   cudaDeviceProp props; cudaGetDeviceProperties(&props, 0);
+   printf("shmem/block: %lu B  shmem/SM: %lu B\n",
+          props.sharedMemPerBlock, props.sharedMemPerMultiprocessor);
+   ```
+   - Compute the maximum `radius` you can support for a 16×16 block.
+
+5. **Patch the webcam filter (optional):**
+   - In `templates/cuda-webcam-filter/src/kernels/convolution_kernels.cu`, swap the naive kernel for a shared-tile version. Build and run with `--kernel-size 15`. Measure FPS change.
+
+6. **Comment out the `__syncthreads()`:**
+   - Remove the barrier after the cooperative load. Some threads will begin reading `tile[...]` before others finish writing. Describe the visible corruption and why it happens.
+
+### Questions
+
+- What are the two `__syncthreads()` calls in a tiled stencil kernel guarding against? (One after load, one before the next phase overwrites.)
+- Why does shared-memory tiling hurt for `radius = 1` but help for `radius = 7`? Express the break-even in terms of `(2r+1)² / overhead_per_load`.
+- How does the halo size affect the ratio of "useful" shared-memory elements (read by this block's outputs) to "halo" elements (only supporting neighbors)?
+- For an anisotropic filter (wide in x, narrow in y), would a rectangular block shape give better shared-memory efficiency? Why?
