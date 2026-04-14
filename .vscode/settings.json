@@ -1,0 +1,13 @@
+{
+    "terminal.integrated.profiles.windows": {
+        "x64 Native Tools Command Prompt for VS 2022": {
+            "path": "C:\\Windows\\System32\\cmd.exe",
+            "args": [
+                "/k",
+                "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat"
+            ],
+            "icon": "terminal-cmd"
+        }
+    },
+    "terminal.integrated.defaultProfile.windows": "x64 Native Tools Command Prompt for VS 2022"
+}

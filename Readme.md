@@ -80,3 +80,9 @@ NVIDIA Nsight Systems version 2025.1.1.131-251135540420v0
 - go to the proper directory, e.g. `cd examples/1-gpu-hello-world`
 - compile and run code with nvcc, e.g. `nvcc -o hello.bin hello-world-gpu.cu -run`
 - profile application if needed, e.g. `nsys profile --stats=true -o hello-report ./hello.bin` (in case of issues on Windows please set the path to nsys in the command line)
+
+#### Windows 11 + VS Code integrated terminal
+
+The repo ships a `.vscode/settings.json` that registers **x64 Native Tools Command Prompt for VS 2022** as the default integrated terminal profile. When you open a new terminal in VS Code (`` Ctrl+` ``), `vcvars64.bat` runs automatically so `cl.exe`, `nvcc`, and `nsys` are on the `PATH` — no manual environment setup required.
+
+If your Visual Studio 2022 is not the Community edition or lives at a non-default path, edit the `path`/`args` in `.vscode/settings.json` to point at your own `vcvars64.bat` (Professional / Enterprise / BuildTools variants).
