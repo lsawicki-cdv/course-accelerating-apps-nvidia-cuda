@@ -151,6 +151,7 @@ int main()
 
 5. Create a new GPU function `helloGPU2` that prints "Hello again from the GPU". Call it after `helloGPU` with different execution configurations.
    - Try to make `helloGPU2` print before `helloGPU`
+   - Is it even possible without different streams?
 
 ## Exercise 2: Understanding Thread and Block Indices
 

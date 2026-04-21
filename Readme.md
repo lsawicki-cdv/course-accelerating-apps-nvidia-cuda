@@ -6,6 +6,25 @@
 - [CUDA Installation Guide for Microsoft Windows](https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/)
 - [NVIDIA Nsight Systems](https://developer.nvidia.com/nsight-systems/get-started)
 
+## Run on Google Colab (no local setup)
+
+If you do not have a CUDA-capable GPU locally, you can run every exercise in Google Colab on a free NVIDIA GPU. The repo ships a ready-to-use notebook: [`cuda_course_colab.ipynb`](cuda_course_colab.ipynb).
+
+**Open in Colab:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/lsawicki-cdv/course-accelerating-apps-nvidia-cuda/blob/main/cuda_course_colab.ipynb)
+
+How to use it:
+
+1. Click the badge above (or upload the `.ipynb` to [colab.research.google.com](https://colab.research.google.com)).
+2. In Colab: **Runtime → Change runtime type → GPU**, then **Save**.
+3. Run the cells from top to bottom. The setup section runs `nvidia-smi`, prints the GPU's compute capability, and clones this repo into the Colab workspace.
+4. Every exercise has a short explanation followed by a cell that compiles and runs the `.cu` file with `nvcc`. You can edit files in Colab's file browser and re-run a cell to see your changes.
+5. The final section uses `nsys profile --stats=true` on exercises 16, 17, and 22 to show coalescing, shared-memory tiling, and transfer-dominated workloads.
+
+GPU tier notes:
+
+- **Free tier (T4, compute 7.5)** — runs exercises 1–17 and 21–23.
+- **Tensor-core exercises 18–20** require compute capability ≥ 8.9 (Ada/Hopper). On a T4 those cells print a "skipped" message. Switch to **L4 or A100** (Colab Pro) to run them.
+
 ## Supporting Materials
 
 - [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)
